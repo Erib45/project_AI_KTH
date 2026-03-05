@@ -1,3 +1,21 @@
+# 1. Ignore absolutely everything by default
 *
+
+# 2. Allow Python scripts and Git config
 !*.py
 !.gitignore
+
+# 3. Allow the HTML templates folder and its contents
+!templates/
+!templates/*.html
+
+# 4. Allow the saved Graph network
+!wikipedia_subset_small.gml
+
+# 5. Allow the fully trained Neural Network model
+!trained_model.keras
+
+# 6. Allow the saved Encoders (so the AI understands the links)
+!link_encoder.pkl
+!target_encoder.pkl
+!choice_encoder.pkl

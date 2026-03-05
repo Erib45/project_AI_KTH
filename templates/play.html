@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Human vs AI - WikiRace</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --panel-bg: #1e1e1e;
+            --text-main: #ffffff;
+            --accent: #bb86fc;
+            --bfs-color: #03dac6;
+            --human-color: #ffeb3b;
+            --loss-color: #f44336;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        h1 { margin-bottom: 5px; color: var(--human-color); }
+        .controls { background: var(--panel-bg); padding: 20px; border-radius: 10px; margin-bottom: 20px; width: 100%; max-width: 800px; text-align: center; }
+        select, button, input { padding: 10px; border-radius: 5px; border: 1px solid #333; background: #2c2c2c; color: white; font-size: 16px; margin: 5px; }
+        button { background: var(--accent); color: #000; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button:hover { filter: brightness(1.1); }
+        
+        .game-board { display: none; width: 100%; max-width: 800px; background: var(--panel-bg); padding: 20px; border-radius: 10px; }
+        .status-bar { display: flex; justify-content: space-between; border-bottom: 2px solid #333; padding-bottom: 15px; margin-bottom: 15px; font-size: 18px; flex-wrap: wrap;}
+        .target-text { color: var(--bfs-color); font-weight: bold; }
+        .current-text { color: var(--accent); font-weight: bold; font-size: 24px; text-align: center; margin-bottom: 15px; }
+        
+        .action-bar { text-align: center; margin-bottom: 20px; }
+        
+        .links-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; max-height: 50vh; overflow-y: auto; padding-right: 10px; }
+        .link-btn { background: #2c2c2c; color: white; border: 1px solid #444; padding: 12px; border-radius: 6px; text-align: left; cursor: pointer; transition: 0.2s; font-size: 14px; }
+        .link-btn:hover { background: #444; border-color: var(--human-color); }
+        
+        .results { display: none; margin-top: 20px; width: 100%; max-width: 800px; background: #222; padding: 20px; border-radius: 10px; border: 2px solid #333; }
+        .win-title { color: #4caf50; text-align: center; }
+        .loss-title { color: var(--loss-color); text-align: center; }
+    </style>
+</head>
+<body>
+
+    <h1>🎮 Human vs. AI</h1>
+    <p>Can you find the shortest path faster than the Neural Network?</p>
+
+    <div class="controls" id="setupMenu">
+        <button onclick="window.location.href='/'" style="background: #444; color: white;">← Back</button>
+        <button onclick="randomizeMatch()" style="background: var(--bfs-color);">🎲 Random Match</button>
+        <br><br>
+        <input type="text" id="startNode" list="nodeList" placeholder="Start Node...">
+        <input type="text" id="targetNode" list="nodeList" placeholder="Target Node...">
+        <button onclick="startGame()" style="background: var(--human-color);">Start Race!</button>
+        
+        <datalist id="nodeList">
+            {% for node in nodes %}
+                <option value="{{ node }}">
+            {% endfor %}
+        </datalist>
+    </div>
+
+    <div class="game-board" id="gameBoard">
+        <div class="status-bar">
+            <span>Target: <span class="target-text" id="displayTarget"></span></span>
+            <span>Optimal: <span style="color: var(--bfs-color); font-weight: bold;" id="optimalCount">...</span> steps</span>
+            <span>Your Steps: <span style="color: var(--human-color); font-weight: bold;" id="stepCount">0</span></span>
+        </div>
+        
+        <div class="current-text" id="displayCurrent">Current Page</div>
+        
+        <div class="action-bar">
+            <button onclick="useHint()" style="background: #ff9800; color: white;">💡 Get a Hint</button>
+            <button onclick="endGame(false)" style="background: var(--loss-color); color: white;">🏳️ Surrender</button>
+        </div>
+
+        <div class="links-grid" id="linksGrid"></div>
+    </div>
+
+    <div class="results" id="resultsScreen">
+        <h2 id="endGameTitle"></h2>
+        
+        <h3 style="color: var(--human-color);">Your Path (<span id="humanStepScore"></span> steps)</h3>
+        <p id="humanPathDisplay"></p>
+        
+        <h3 style="color: var(--accent);">AI's Path (<span id="aiStepScore">...</span> steps)</h3>
+        <p id="aiPathDisplay">Calculating AI response...</p>
+        
+        <h3 style="color: var(--bfs-color);">Optimal Shortest Path (<span id="bfsStepScore">...</span> steps)</h3>
+        <p id="bfsPathDisplay">Calculating perfect path...</p>
+        
+        <div style="text-align: center; margin-top: 20px;">
+            <button onclick="location.reload()" style="background: var(--human-color);">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        const allNodes = {{ nodes | tojson | safe }};
+        let currentTarget = "";
+        let humanPath = [];
+
+        function randomizeMatch() {
+            if (allNodes.length < 2) return;
+            let startIdx = Math.floor(Math.random() * allNodes.length);
+            let targetIdx = Math.floor(Math.random() * allNodes.length);
+            while (startIdx === targetIdx) targetIdx = Math.floor(Math.random() * allNodes.length);
+            
+            document.getElementById('startNode').value = allNodes[startIdx];
+            document.getElementById('targetNode').value = allNodes[targetIdx];
+        }
+
+        async function startGame() {
+            const start = document.getElementById('startNode').value;
+            const target = document.getElementById('targetNode').value;
+            if (!start || !target) return alert("Select start and target!");
+
+            currentTarget = target;
+            humanPath = [start];
+            
+            document.getElementById('setupMenu').style.display = 'none';
+            document.getElementById('gameBoard').style.display = 'block';
+            document.getElementById('displayTarget').innerText = target;
+            
+            // Fetch Optimal Path Length (Par Score)
+            const response = await fetch('/game_setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ start, target })
+            });
+            const data = await response.json();
+            document.getElementById('optimalCount').innerText = data.optimal_steps;
+            
+            loadNode(start);
+        }
+
+        async function loadNode(nodeName) {
+            document.getElementById('displayCurrent').innerText = nodeName;
+            document.getElementById('stepCount').innerText = humanPath.length - 1;
+            document.getElementById('linksGrid').innerHTML = "<p>Loading links...</p>";
+
+            if (nodeName === currentTarget) {
+                endGame(true); // Player won!
+                return;
+            }
+
+            const response = await fetch('/get_neighbors', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ node: nodeName })
+            });
+            const data = await response.json();
+            
+            const grid = document.getElementById('linksGrid');
+            grid.innerHTML = "";
+            
+            if (data.neighbors.length === 0) {
+                grid.innerHTML = "<p style='color: red;'>Dead end! You are stuck. You must surrender.</p>";
+                return;
+            }
+
+            data.neighbors.forEach(neighbor => {
+                let btn = document.createElement("button");
+                btn.className = "link-btn";
+                btn.innerText = neighbor;
+                
+                if(neighbor === currentTarget) {
+                    btn.style.borderColor = "#03dac6";
+                    btn.style.boxShadow = "0 0 10px #03dac6";
+                }
+
+                btn.onclick = () => {
+                    humanPath.push(neighbor);
+                    loadNode(neighbor);
+                };
+                grid.appendChild(btn);
+            });
+        }
+
+        async function useHint() {
+            const currentNode = humanPath[humanPath.length - 1];
+            const response = await fetch('/get_hint', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ node: currentNode, target: currentTarget })
+            });
+            const data = await response.json();
+            
+            // Hide all buttons except the hint choices
+            const buttons = document.getElementsByClassName('link-btn');
+            for(let btn of buttons) {
+                if(data.hint_options.includes(btn.innerText)) {
+                    btn.style.display = 'block';
+                    btn.style.borderColor = '#ff9800';
+                } else {
+                    btn.style.display = 'none';
+                }
+            }
+        }
+
+        async function endGame(isWin) {
+            document.getElementById('gameBoard').style.display = 'none';
+            const resultsScreen = document.getElementById('resultsScreen');
+            resultsScreen.style.display = 'block';
+            
+            const title = document.getElementById('endGameTitle');
+            if(isWin) {
+                title.innerText = "🎉 Target Reached!";
+                title.className = "win-title";
+                resultsScreen.style.borderColor = "#4caf50";
+            } else {
+                title.innerText = "💀 You Surrendered!";
+                title.className = "loss-title";
+                resultsScreen.style.borderColor = "#f44336";
+            }
+            
+            document.getElementById('humanStepScore').innerText = humanPath.length - 1;
+            document.getElementById('humanPathDisplay').innerText = humanPath.join(" ➔ ");
+
+            // Run the AI and BFS calculations
+            const response = await fetch('/calculate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ start: humanPath[0], target: currentTarget })
+            });
+            const data = await response.json();
+            
+            document.getElementById('aiStepScore').innerText = data.ai_path.length - 1;
+            document.getElementById('aiPathDisplay').innerText = data.ai_path.join(" ➔ ");
+            
+            document.getElementById('bfsStepScore').innerText = data.bfs_path.length - 1;
+            document.getElementById('bfsPathDisplay').innerText = data.bfs_path.join(" ➔ ");
+        }
+    </script>
+</body>
+</html>

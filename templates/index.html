@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wikipedia AI Pathfinder</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --panel-bg: #1e1e1e;
+            --text-main: #ffffff;
+            --accent: #bb86fc;
+            --bfs-color: #03dac6;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { margin-bottom: 5px; color: var(--accent); }
+        .controls {
+            background: var(--panel-bg);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        input[type="text"], button {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #333;
+            background: #2c2c2c;
+            color: white;
+            font-size: 16px;
+            width: 200px;
+        }
+        input[type="text"]::placeholder { color: #888; }
+        
+        button {
+            background: var(--accent);
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+            width: auto;
+        }
+        button:hover { background: #9b68eb; }
+        
+        /* NEW SPLIT SCREEN LAYOUT */
+        .comparison-wrapper {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            max-width: 1600px; /* Widened to fit both graphs nicely */
+            height: 70vh; /* Make it take up most of the screen */
+        }
+        .panel {
+            flex: 1;
+            background: var(--panel-bg);
+            padding: 20px;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+        .panel h3 { margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        .ai-title { color: var(--accent); }
+        .bfs-title { color: var(--bfs-color); }
+        
+        /* Graph containers */
+        .network-graph {
+            height: 450px; /* <--- THE FIX: Strict height stops the infinite loop */
+            width: 100%;
+            background-color: #0f0f0f;
+            border-radius: 10px;
+            margin-top: 15px;
+            border: 1px solid #333;
+        }
+        .loading { font-style: italic; color: #888; }
+        .path-text { margin: 0; font-size: 14px; color: #ccc; }
+    </style>
+</head>
+<body>
+
+    <h1>Wikipedia Graph Navigator</h1>
+    <p>Compare Shortest Path against AI Neural Network predictions.</p>
+
+   <div class="controls">
+        <div>
+            <label>Start Node: </label>
+            <input type="text" id="startNode" list="nodeList" placeholder="Search for start...">
+        </div>
+        <div>
+            <label>Target Node: </label>
+            <input type="text" id="targetNode" list="nodeList" placeholder="Search for target...">
+        </div>
+        
+        <datalist id="nodeList">
+            {% for node in nodes %}
+                <option value="{{ node }}">
+            {% endfor %}
+        </datalist>
+
+        <button onclick="pickRandom()" style="background: var(--bfs-color);">🎲 Random Route</button>
+        <button onclick="calculatePaths()">Find Path</button>
+        <button onclick="window.location.href='/play'" style="background: #ffeb3b; color: #000; margin-left: auto;">🎮 Play vs the AI</button>
+    </div>
+
+    <div class="comparison-wrapper">
+        <div class="panel">
+            <h3 class="ai-title">AI Predicted Path</h3>
+            <p class="path-text" id="aiOutput">Waiting for input...</p>
+            <div id="ai-graph" class="network-graph"></div>
+        </div>
+        
+        <div class="panel">
+            <h3 class="bfs-title">Shortest Path (BFS)</h3>
+            <p class="path-text" id="bfsOutput">Waiting for input...</p>
+            <div id="bfs-graph" class="network-graph"></div>
+        </div>
+    </div>
+
+    <script>
+        let aiNetwork = null;
+        let bfsNetwork = null;
+        
+        const allNodes = {{ nodes | tojson | safe }};
+
+        
+        function pickRandom() {
+            if (allNodes.length < 2) return; // Safety check
+
+            // 1. Pick a random start index
+            let startIdx = Math.floor(Math.random() * allNodes.length);
+            let targetIdx = Math.floor(Math.random() * allNodes.length);
+
+            // 2. Make sure the start and target aren't the exact same node
+            while (startIdx === targetIdx) {
+                targetIdx = Math.floor(Math.random() * allNodes.length);
+            }
+
+            // 3. Set the text inputs to the chosen random nodes
+            document.getElementById('startNode').value = allNodes[startIdx];
+            document.getElementById('targetNode').value = allNodes[targetIdx];
+
+            // 4. Automatically trigger the search!
+            calculatePaths();
+        }
+
+        async function calculatePaths() {
+            const start = document.getElementById('startNode').value;
+            const target = document.getElementById('targetNode').value;
+            
+            if (!start || !target) {
+                alert("Please select both a Start Node and a Target Node.");
+                return;
+            }
+            
+            document.getElementById('aiOutput').innerHTML = "<span class='loading'>Calculating...</span>";
+            document.getElementById('bfsOutput').innerHTML = "<span class='loading'>Calculating...</span>";
+
+            try {
+                const response = await fetch('/calculate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ start, target })
+                });
+                
+                const data = await response.json();
+                
+                document.getElementById('aiOutput').innerText = data.ai_path.join(" ➔ ");
+                document.getElementById('bfsOutput').innerText = data.bfs_path.length ? data.bfs_path.join(" ➔ ") : "No path found.";
+
+                drawGraphs(data.ai_path, data.bfs_path, start, target);
+            } catch (error) {
+                console.error("Error fetching path:", error);
+                document.getElementById('aiOutput').innerText = "Error calculating path.";
+                document.getElementById('bfsOutput').innerText = "Error calculating path.";
+            }
+        }
+
+        function drawGraphs(aiPath, bfsPath, startNode, targetNode) {
+            // Options that apply to BOTH graphs
+            const options = {
+                physics: { stabilization: true },
+                edges: { smooth: { type: 'continuous' } },
+                interaction: { dragNodes: true, zoomView: true, dragView: true }
+            };
+
+            // Helper function to create perfectly round nodes with visible text
+            function createNodeObj(id, color, isStart, isTarget) {
+                let shape = 'dot'; // Perfectly round bubble
+                let size = 15;
+                let finalColor = color;
+
+                if (isStart) { shape = 'star'; size = 25; finalColor = '#ffeb3b'; } // Yellow Star
+                else if (isTarget) { shape = 'star'; size = 25; finalColor = '#ff5722'; } // Orange Star
+
+                return {
+                    id: id,
+                    label: id, // Text is always attached
+                    shape: shape,
+                    size: size,
+                    color: { background: finalColor, border: '#ffffff' },
+                    font: { 
+                        color: '#ffffff', 
+                        size: 14, 
+                        strokeWidth: 3, // Adds a black outline to the text so it's always readable
+                        strokeColor: '#000000' 
+                    }
+                };
+            }
+
+            // --- 1. BUILD AI GRAPH ---
+            const aiNodes = new vis.DataSet();
+            const aiEdges = new vis.DataSet();
+
+            for (let i = 0; i < aiPath.length; i++) {
+                if (aiPath[i] === "(Failed to reach target)") continue;
+                
+                let isStart = (aiPath[i] === startNode);
+                let isTarget = (aiPath[i] === targetNode);
+
+                // Prevent duplicates if AI loops in circles
+                if (!aiNodes.get(aiPath[i])) {
+                    aiNodes.add(createNodeObj(aiPath[i], '#bb86fc', isStart, isTarget));
+                }
+                
+                if (i > 0) {
+                    aiEdges.add({ from: aiPath[i-1], to: aiPath[i], color: {color: '#bb86fc'}, arrows: 'to' });
+                }
+            }
+
+            // --- 2. BUILD BFS GRAPH ---
+            const bfsNodes = new vis.DataSet();
+            const bfsEdges = new vis.DataSet();
+
+            for (let i = 0; i < bfsPath.length; i++) {
+                let isStart = (bfsPath[i] === startNode);
+                let isTarget = (bfsPath[i] === targetNode);
+
+                if (!bfsNodes.get(bfsPath[i])) {
+                    bfsNodes.add(createNodeObj(bfsPath[i], '#03dac6', isStart, isTarget));
+                }
+                
+                if (i > 0) {
+                    bfsEdges.add({ from: bfsPath[i-1], to: bfsPath[i], color: {color: '#03dac6'}, arrows: 'to' });
+                }
+            }
+
+            // --- 3. RENDER BOTH GRAPHS ---
+            if (aiNetwork !== null) aiNetwork.destroy();
+            if (bfsNetwork !== null) bfsNetwork.destroy();
+
+            aiNetwork = new vis.Network(document.getElementById('ai-graph'), { nodes: aiNodes, edges: aiEdges }, options);
+            bfsNetwork = new vis.Network(document.getElementById('bfs-graph'), { nodes: bfsNodes, edges: bfsEdges }, options);
+        }
+    </script>
+</body>
+</html>
