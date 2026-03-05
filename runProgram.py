@@ -6,6 +6,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 import os
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+import tensorflow
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 
