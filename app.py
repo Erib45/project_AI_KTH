@@ -17,7 +17,6 @@ model = load_model("trained_model.keras")
 with open("link_encoder.pkl", "rb") as f: link_encoder = pickle.load(f)
 with open("target_encoder.pkl", "rb") as f: target_encoder = pickle.load(f)
 with open("choice_encoder.pkl", "rb") as f: choice_encoder = pickle.load(f)
-with open("one_hot_encoder.pkl", "rb") as f: one_hot_encoder = pickle.load(f)
 
 graph = nx.read_gml("wikipedia_subset_small.gml")
 nodes_list = list(graph.nodes)
@@ -30,7 +29,7 @@ def index():
 
 @app.route('/play')
 def play():
-    # Serve the new game page
+    # Serve the game page
     return render_template('play.html', nodes=nodes_list)
 
 @app.route('/get_neighbors', methods=['POST'])
@@ -40,7 +39,7 @@ def get_neighbors():
     node = data.get('node')
     
     if node in graph:
-        # Sort them alphabetically so it's easier for the human to read!
+        # Sort them alphabetically so it's easier to read!
         neighbors = sorted(list(graph.neighbors(node)))
         return jsonify({"neighbors": neighbors})
     
@@ -48,7 +47,7 @@ def get_neighbors():
 
 @app.route('/game_setup', methods=['POST'])
 def game_setup():
-    # Calculates the "Par" score for the human to beat
+    # Calculates the "Par" score to beat
     data = request.json
     try:
         bfs_path = nx.shortest_path(graph, source=data['start'], target=data['target'])
