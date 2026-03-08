@@ -91,25 +91,67 @@
         </div>
     </div>
 
+    <script id="node-data" type="application/json">
+        {{ nodes | tojson | safe }}
+    </script>
+
     <script>
-        const allNodes = {{ nodes | tojson | safe }};
+        const allNodes = JSON.parse(document.getElementById('node-data').textContent);
+        
         let currentTarget = "";
         let humanPath = [];
 
-        function randomizeMatch() {
-            if (allNodes.length < 2) return;
-            let startIdx = Math.floor(Math.random() * allNodes.length);
-            let targetIdx = Math.floor(Math.random() * allNodes.length);
-            while (startIdx === targetIdx) targetIdx = Math.floor(Math.random() * allNodes.length);
+        async function randomizeMatch() {
+            if (allNodes.length < 2) return; 
             
-            document.getElementById('startNode').value = allNodes[startIdx];
-            document.getElementById('targetNode').value = allNodes[targetIdx];
-        }
+            document.getElementById('startNode').value = "Rolling...";
+            document.getElementById('targetNode').value = "Rolling...";
 
+            let isValid = false;
+            let startNode, targetNode;
+
+            while (!isValid) {
+                // Pull BOTH from allNodes now!
+                startNode = allNodes[Math.floor(Math.random() * allNodes.length)];
+                targetNode = allNodes[Math.floor(Math.random() * allNodes.length)];
+                
+                if (startNode === targetNode) continue;
+
+                // Our BFS check does all the heavy lifting
+                const response = await fetch('/game_setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ start: startNode, target: targetNode })
+                });
+                const data = await response.json();
+                
+                if (data.optimal_steps !== "?") {
+                    isValid = true; 
+                }
+            }
+            
+            document.getElementById('startNode').value = startNode;
+            document.getElementById('targetNode').value = targetNode;
+        }
+   
+       
         async function startGame() {
             const start = document.getElementById('startNode').value;
             const target = document.getElementById('targetNode').value;
             if (!start || !target) return alert("Select start and target!");
+
+            // Ask the server for the optimal path to ensure it's winnable (if they typed it manually)
+            const response = await fetch('/game_setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ start, target })
+            });
+            const data = await response.json();
+
+            if (data.optimal_steps === "?") {
+                alert("Impossible Match! There is no valid Wikipedia path between these two pages. Please try a different combination or click Random Match.");
+                return;
+            }
 
             currentTarget = target;
             humanPath = [start];
@@ -117,14 +159,6 @@
             document.getElementById('setupMenu').style.display = 'none';
             document.getElementById('gameBoard').style.display = 'block';
             document.getElementById('displayTarget').innerText = target;
-            
-            // Fetch Optimal Path Length (Par Score)
-            const response = await fetch('/game_setup', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ start, target })
-            });
-            const data = await response.json();
             document.getElementById('optimalCount').innerText = data.optimal_steps;
             
             loadNode(start);
@@ -136,7 +170,7 @@
             document.getElementById('linksGrid').innerHTML = "<p>Loading links...</p>";
 
             if (nodeName === currentTarget) {
-                endGame(true); // Player won!
+                endGame(true); 
                 return;
             }
 
@@ -182,7 +216,6 @@
             });
             const data = await response.json();
             
-            // Hide all buttons except the hint choices
             const buttons = document.getElementsByClassName('link-btn');
             for(let btn of buttons) {
                 if(data.hint_options.includes(btn.innerText)) {
@@ -213,7 +246,6 @@
             document.getElementById('humanStepScore').innerText = humanPath.length - 1;
             document.getElementById('humanPathDisplay').innerText = humanPath.join(" ➔ ");
 
-            // Run the AI and BFS calculations
             const response = await fetch('/calculate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

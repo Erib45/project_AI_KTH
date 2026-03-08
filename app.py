@@ -5,6 +5,8 @@ import numpy as np
 import pickle
 import os
 import random
+import time
+from collections import deque
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 from tensorflow.keras.models import load_model
 
@@ -20,16 +22,46 @@ with open("choice_encoder.pkl", "rb") as f: choice_encoder = pickle.load(f)
 
 graph = nx.read_gml("wikipedia_subset_small.gml")
 nodes_list = list(graph.nodes)
+
+# 🚨 THE FIX: WARM UP THE NEURAL NETWORK 🚨
+print("Warming up the AI engine...")
+# We feed it a fake, random prediction so TensorFlow builds its graph now, not during the game.
+dummy_neighbors = ",".join(list(graph.neighbors(nodes_list[0])))
+dummy_link = link_encoder.transform([dummy_neighbors])
+dummy_target = target_encoder.transform([nodes_list[1]])
+model([dummy_link, dummy_target], training=False)
+print("System Ready!")
 # --------------------------------------------------
+def custom_bfs(graph, start, target):
+    if start not in graph or target not in graph:
+        return [], 0
+    if start == target:
+        return [start], 1
+    
+    queue = deque([[start]])
+    visited = {start}
+    nodes_explored = 0
+    
+    while queue:
+        path = queue.popleft()
+        current_node = path[-1]
+        nodes_explored += 1 # Count every node we pop off the queue
+        
+        for neighbor in graph.neighbors(current_node):
+            if neighbor == target:
+                return path + [neighbor], nodes_explored
+            if neighbor not in visited:
+                visited.add(neighbor)
+                queue.append(path + [neighbor])
+                
+    return [], nodes_explored
 
 @app.route('/')
 def index():
-    # Pass the nodes to the frontend to populate the dropdown menus
     return render_template('index.html', nodes=nodes_list)
 
 @app.route('/play')
 def play():
-    # Serve the game page
     return render_template('play.html', nodes=nodes_list)
 
 @app.route('/get_neighbors', methods=['POST'])
@@ -86,37 +118,34 @@ def calculate():
     target = data['target']
 
     # 1. Get True Shortest Path (BFS)
-    try:
-        bfs_path = nx.shortest_path(graph, source=start, target=target)
-    except nx.NetworkXNoPath:
-        bfs_path = []
+    start_time_bfs = time.time()
+    bfs_path, bfs_explored = custom_bfs(graph, start, target)
+    bfs_time = time.time() - start_time_bfs
 
     # 2. Get AI Predicted Path
+    
     node = start
     ai_path = []
     j = 0
-    
+    ai_explored = 0
+    start_time_ai = time.time()
     while j < 15:
         ai_path.append(node)
+        ai_explored += 1 # The AI only explores the exact nodes it lands on
         if node == target:
             break
             
         neighbors = list(graph.neighbors(node))
-        if not neighbors: # Dead end
+        if not neighbors: 
             break
 
         try:
-            # THE FIX: No more pandas dataframes. No more replacing commas with spaces!
-            # We pass the EXACT comma-separated string the AI trained on.
             links_str = ",".join(neighbors)
-            
             links_encoded = link_encoder.transform([links_str])
             target_encoded = target_encoder.transform([target])
 
-            # Predict using our new dual-input Embeddings model
-            predictions = model.predict([links_encoded, target_encoded], verbose=0)[0] 
+            predictions = model([links_encoded, target_encoded], training=False).numpy()[0]
             
-            # Constrain the AI to only pick valid, known neighbors
             known_neighbors = [n for n in neighbors if n in choice_encoder.classes_]
             
             if known_neighbors:
@@ -124,7 +153,6 @@ def calculate():
                 best_valid_id = max(valid_ids, key=lambda idx: predictions[idx])
                 node = choice_encoder.inverse_transform([best_valid_id])[0]
             else:
-                # Fallback
                 predicted_label = np.argmax(predictions)
                 node = choice_encoder.inverse_transform([predicted_label])[0]
 
@@ -137,9 +165,16 @@ def calculate():
     if ai_path[-1] != target:
         ai_path.append("(Failed)")
 
+    ai_time = time.time() - start_time_ai
+
+    # Send the new stats to the frontend!
     return jsonify({
         "bfs_path": bfs_path,
-        "ai_path": ai_path
+        "bfs_time": round(bfs_time, 4),
+        "bfs_explored": bfs_explored,
+        "ai_path": ai_path,
+        "ai_time": round(ai_time, 4),
+        "ai_explored": ai_explored
     })
 
 if __name__ == '__main__':

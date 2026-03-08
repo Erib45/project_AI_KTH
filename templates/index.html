@@ -56,13 +56,12 @@
         }
         button:hover { background: #9b68eb; }
         
-        /* NEW SPLIT SCREEN LAYOUT */
         .comparison-wrapper {
             display: flex;
             gap: 20px;
             width: 100%;
-            max-width: 1600px; /* Widened to fit both graphs nicely */
-            height: 70vh; /* Make it take up most of the screen */
+            max-width: 1600px; 
+            height: 70vh; 
         }
         .panel {
             flex: 1;
@@ -76,9 +75,20 @@
         .ai-title { color: var(--accent); }
         .bfs-title { color: var(--bfs-color); }
         
-        /* Graph containers */
+        .stats-bar {
+            display: flex;
+            justify-content: space-between;
+            background: #2a2a2a;
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            font-size: 14px;
+            border: 1px solid #444;
+        }
+        .stats-val { color: #fff; font-weight: bold; }
+
         .network-graph {
-            height: 450px; /* <--- THE FIX: Strict height stops the infinite loop */
+            height: 450px; 
             width: 100%;
             background-color: #0f0f0f;
             border-radius: 10px;
@@ -114,45 +124,46 @@
         <button onclick="calculatePaths()">Find Path</button>
         <button onclick="window.location.href='/play'" style="background: #ffeb3b; color: #000; margin-left: auto;">🎮 Play vs the AI</button>
     </div>
-
     <div class="comparison-wrapper">
         <div class="panel">
             <h3 class="ai-title">AI Predicted Path</h3>
+            <div class="stats-bar">
+                <span>⏱️ Time: <span class="stats-val" id="aiTime">0.000</span>s</span>
+                <span>🔍 Nodes Explored: <span class="stats-val" id="aiExplored">0</span></span>
+            </div>
             <p class="path-text" id="aiOutput">Waiting for input...</p>
             <div id="ai-graph" class="network-graph"></div>
         </div>
         
         <div class="panel">
             <h3 class="bfs-title">Shortest Path (BFS)</h3>
+            <div class="stats-bar">
+                <span>⏱️ Time: <span class="stats-val" id="bfsTime">0.000</span>s</span>
+                <span>🔍 Nodes Explored: <span class="stats-val" id="bfsExplored">0</span></span>
+            </div>
             <p class="path-text" id="bfsOutput">Waiting for input...</p>
             <div id="bfs-graph" class="network-graph"></div>
         </div>
     </div>
 
+    <script id="node-data" type="application/json">
+        {{ nodes | tojson | safe }}
+    </script>
+
     <script>
         let aiNetwork = null;
         let bfsNetwork = null;
         
-        const allNodes = {{ nodes | tojson | safe }};
+        const allNodes = JSON.parse(document.getElementById('node-data').textContent);
 
-        
         function pickRandom() {
-            if (allNodes.length < 2) return; // Safety check
-
-            // 1. Pick a random start index
+            if (allNodes.length < 2) return; 
             let startIdx = Math.floor(Math.random() * allNodes.length);
             let targetIdx = Math.floor(Math.random() * allNodes.length);
+            while (startIdx === targetIdx) targetIdx = Math.floor(Math.random() * allNodes.length);
 
-            // 2. Make sure the start and target aren't the exact same node
-            while (startIdx === targetIdx) {
-                targetIdx = Math.floor(Math.random() * allNodes.length);
-            }
-
-            // 3. Set the text inputs to the chosen random nodes
             document.getElementById('startNode').value = allNodes[startIdx];
             document.getElementById('targetNode').value = allNodes[targetIdx];
-
-            // 4. Automatically trigger the search!
             calculatePaths();
         }
 
@@ -160,10 +171,7 @@
             const start = document.getElementById('startNode').value;
             const target = document.getElementById('targetNode').value;
             
-            if (!start || !target) {
-                alert("Please select both a Start Node and a Target Node.");
-                return;
-            }
+            if (!start || !target) return alert("Please select both a Start Node and a Target Node.");
             
             document.getElementById('aiOutput').innerHTML = "<span class='loading'>Calculating...</span>";
             document.getElementById('bfsOutput').innerHTML = "<span class='loading'>Calculating...</span>";
@@ -177,6 +185,12 @@
                 
                 const data = await response.json();
                 
+                // UPDATED: Populate the new stats DOM elements!
+                document.getElementById('aiTime').innerText = data.ai_time.toFixed(4);
+                document.getElementById('aiExplored').innerText = data.ai_explored;
+                document.getElementById('bfsTime').innerText = data.bfs_time.toFixed(4);
+                document.getElementById('bfsExplored').innerText = data.bfs_explored;
+
                 document.getElementById('aiOutput').innerText = data.ai_path.join(" ➔ ");
                 document.getElementById('bfsOutput').innerText = data.bfs_path.length ? data.bfs_path.join(" ➔ ") : "No path found.";
 
@@ -189,38 +203,50 @@
         }
 
         function drawGraphs(aiPath, bfsPath, startNode, targetNode) {
-            // Options that apply to BOTH graphs
+            // UPDATED OPTIONS: Fast-track stabilization and BarnesHut physics solver
             const options = {
-                physics: { stabilization: true },
+                physics: { 
+                    enabled: true,
+                    stabilization: {
+                        enabled: true,
+                        iterations: 1000, 
+                        updateInterval: 50 
+                    },
+                    solver: 'barnesHut',
+                    barnesHut: {
+                        gravitationalConstant: -2000,
+                        centralGravity: 0.3,
+                        springLength: 95
+                    }
+                },
                 edges: { smooth: { type: 'continuous' } },
                 interaction: { dragNodes: true, zoomView: true, dragView: true }
             };
 
-            // Helper function to create perfectly round nodes with visible text
             function createNodeObj(id, color, isStart, isTarget) {
-                let shape = 'dot'; // Perfectly round bubble
+                let shape = 'dot'; 
                 let size = 15;
                 let finalColor = color;
 
-                if (isStart) { shape = 'star'; size = 25; finalColor = '#ffeb3b'; } // Yellow Star
-                else if (isTarget) { shape = 'star'; size = 25; finalColor = '#ff5722'; } // Orange Star
+                if (isStart) { shape = 'star'; size = 25; finalColor = '#ffeb3b'; } 
+                else if (isTarget) { shape = 'star'; size = 25; finalColor = '#ff5722'; } 
 
                 return {
                     id: id,
-                    label: id, // Text is always attached
+                    label: id, 
                     shape: shape,
                     size: size,
                     color: { background: finalColor, border: '#ffffff' },
+                    // UPDATED FONT: Thicker stroke and larger text for zoomed-out readability
                     font: { 
                         color: '#ffffff', 
-                        size: 14, 
-                        strokeWidth: 3, // Adds a black outline to the text so it's always readable
+                        size: 18, 
+                        strokeWidth: 5, 
                         strokeColor: '#000000' 
                     }
                 };
             }
 
-            // --- 1. BUILD AI GRAPH ---
             const aiNodes = new vis.DataSet();
             const aiEdges = new vis.DataSet();
 
@@ -230,7 +256,6 @@
                 let isStart = (aiPath[i] === startNode);
                 let isTarget = (aiPath[i] === targetNode);
 
-                // Prevent duplicates if AI loops in circles
                 if (!aiNodes.get(aiPath[i])) {
                     aiNodes.add(createNodeObj(aiPath[i], '#bb86fc', isStart, isTarget));
                 }
@@ -240,7 +265,6 @@
                 }
             }
 
-            // --- 2. BUILD BFS GRAPH ---
             const bfsNodes = new vis.DataSet();
             const bfsEdges = new vis.DataSet();
 
@@ -257,12 +281,20 @@
                 }
             }
 
-            // --- 3. RENDER BOTH GRAPHS ---
             if (aiNetwork !== null) aiNetwork.destroy();
             if (bfsNetwork !== null) bfsNetwork.destroy();
 
             aiNetwork = new vis.Network(document.getElementById('ai-graph'), { nodes: aiNodes, edges: aiEdges }, options);
             bfsNetwork = new vis.Network(document.getElementById('bfs-graph'), { nodes: bfsNodes, edges: bfsEdges }, options);
+
+            // AUTO-FIT: Triggers a smooth zoom to fit all nodes once physics settle
+            aiNetwork.once('stabilized', function() {
+                aiNetwork.fit({ animation: true }); 
+            });
+
+            bfsNetwork.once('stabilized', function() {
+                bfsNetwork.fit({ animation: true }); 
+            });
         }
     </script>
 </body>
