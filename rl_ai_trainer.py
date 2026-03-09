@@ -17,104 +17,105 @@ class WikiGraphEnv(gym.Env):
     def __init__(self, graph_path="wikipedia_subset_small.gml"):
         super(WikiGraphEnv, self).__init__()
         
-        # Load the graph
         print("Loading Graph for RL Environment...")
         self.graph = nx.read_gml(graph_path)
+        
+        # 🚨 NEW: Create a backwards graph so we can run Reverse BFS
+        self.reverse_graph = self.graph.reverse()
+        
         self.nodes = list(self.graph.nodes)
         self.num_nodes = len(self.nodes)
         
-        # Create dictionaries to translate Node Names (strings) <--> Node IDs (integers)
-        # RL algorithms only understand numbers!
         self.node_to_id = {node: i for i, node in enumerate(self.nodes)}
         self.id_to_node = {i: node for i, node in enumerate(self.nodes)}
         
-        # Pre-calculate valid start nodes (must have at least 1 outgoing link)
         self.valid_starts = [n for n in self.nodes if len(list(self.graph.neighbors(n))) > 0]
 
-        # --- THE SPACES ---
-        # Action Space: The AI has a massive controller with a button for EVERY page.
         self.action_space = spaces.Discrete(self.num_nodes)
-        
-        # Observation Space: The AI needs to know [Current Node ID, Target Node ID]
         self.observation_space = spaces.MultiDiscrete([self.num_nodes, self.num_nodes])
         
-        # Game State Variables
         self.current_node = None
         self.target_node = None
+        self.distance_map = {} # This will hold our BFS radar distances!
         self.steps_taken = 0
-        self.max_steps = 20 # Force the game to end if the AI wanders too far
+        self.max_steps = 20 
 
     def reset(self, seed=None, options=None):
-        """Starts a new game round."""
         super().reset(seed=seed)
         
-        # Pick a safe random start and target
-        self.current_node = random.choice(self.valid_starts)
+        # 🚨 NEW: Pick a target, then run Reverse BFS to map the whole maze instantly!
         self.target_node = random.choice(self.nodes)
-        while self.current_node == self.target_node:
+        self.distance_map = nx.single_source_shortest_path_length(self.reverse_graph, self.target_node)
+        
+        # Find all nodes that actually have a valid path to this target
+        winnable_starts = [n for n in self.distance_map.keys() if n != self.target_node and n in self.valid_starts]
+        
+        # If we picked a terrible target that nobody can reach, re-roll it
+        while not winnable_starts:
             self.target_node = random.choice(self.nodes)
-            
+            self.distance_map = nx.single_source_shortest_path_length(self.reverse_graph, self.target_node)
+            winnable_starts = [n for n in self.distance_map.keys() if n != self.target_node and n in self.valid_starts]
+
+        # Spawn the AI on a guaranteed winnable page!
+        self.current_node = random.choice(winnable_starts)
         self.steps_taken = 0
         
-        # Return the observation [Current ID, Target ID] and an empty info dict
-        obs = np.array([self.node_to_id[self.current_node], self.node_to_id[self.target_node]], dtype=np.int32)
-        return obs, {}
+        return self._get_obs(), {}
 
     def step(self, action_id):
-        """The AI presses a button (takes an action)."""
         self.steps_taken += 1
         chosen_node = self.id_to_node[action_id]
         
-        # 1. Check if the AI tried to cheat (should be prevented by the mask, but just in case!)
         neighbors = list(self.graph.neighbors(self.current_node))
         if chosen_node not in neighbors:
-            # Massive penalty for breaking the rules, and instantly end the game
             return self._get_obs(), -50.0, True, False, {"msg": "Invalid Move!"}
 
-        # 2. Move the AI to the new room
+        # 🚨 NEW: Check the BFS Radar before we move!
+        old_distance = self.distance_map.get(self.current_node, float('inf'))
+        new_distance = self.distance_map.get(chosen_node, float('inf'))
+        
+        # Move the AI
         self.current_node = chosen_node
         
-        # 3. Calculate Rewards!
         terminated = False
         truncated = False
-        reward = -1.0 # -1 point for every step (encourages speed)
         
+        # 🚨 NEW: Your Custom Reward Scaling Logic!
         if self.current_node == self.target_node:
-            reward = 200.0 # +200 points for winning!
+            reward = 50
             terminated = True
             
         elif len(list(self.graph.neighbors(self.current_node))) == 0:
-            reward = -50.0 # -30 points for walking into a dead end
+            reward = -30
             terminated = True
             
         elif self.steps_taken >= self.max_steps:
-            reward = -5.0 # Small penalty for timing out
+            reward = -2
             truncated = True
+            
+        else:
+            # The AI is still playing. Let's grade its step using the radar!
+            if new_distance < old_distance:
+                reward = 5.0   # Amazing! It stepped toward the target.
+            elif new_distance == old_distance:
+                reward = 2    # Okay. It stepped sideways (neither closer nor further).
+            else:
+                reward = -2  # Terrible! It stepped backwards or off the path entirely.
+                
+            # Always subtract 1 point just to remind it that taking steps costs energy
+            reward -= 1.0 
 
         return self._get_obs(), reward, terminated, truncated, {}
 
     def _get_obs(self):
-        """Helper to format the observation array."""
         return np.array([self.node_to_id[self.current_node], self.node_to_id[self.target_node]], dtype=np.int32)
 
     def valid_action_mask(self):
-        """
-        THE SECRET WEAPON: This creates an array of True/False for all nodes.
-        True = The button is unlocked (it is a valid neighbor).
-        False = The button is physically locked by the wrapper.
-        """
         mask = np.zeros(self.num_nodes, dtype=bool)
         neighbors = list(self.graph.neighbors(self.current_node))
-        for n in neighbors:
-            mask[self.node_to_id[n]] = True
-            
-        # If dead end, just unlock the current node so it doesn't crash before the game ends
-        if len(neighbors) == 0:
-            mask[self.node_to_id[self.current_node]] = True 
-            
+        for n in neighbors: mask[self.node_to_id[n]] = True
+        if len(neighbors) == 0: mask[self.node_to_id[self.current_node]] = True 
         return mask
-
-
 # ==========================================
 # 2. HELPER FUNCTION TO APPLY THE MASK
 # ==========================================
@@ -176,7 +177,7 @@ if __name__ == "__main__":
             action, _states = model.predict(obs, action_masks=action_masks, deterministic=True)
             
             # 3. Take the step
-            obs, reward, terminated, truncated, info = env.step(action)
+            obs, reward, terminated, truncated, info = env.step(action.item())
             steps += 1
             
             # 4. Check if the game ended
