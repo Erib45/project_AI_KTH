@@ -98,9 +98,9 @@ class WikiGraphEnv(gym.Env):
             if new_distance < old_distance:
                 reward = 5.0   # Amazing! It stepped toward the target.
             elif new_distance == old_distance:
-                reward = 2    # Okay. It stepped sideways (neither closer nor further).
+                reward = 0    # Okay. It stepped sideways (neither closer nor further).
             else:
-                reward = -2  # Terrible! It stepped backwards or off the path entirely.
+                reward = -5  # Terrible! It stepped backwards or off the path entirely.
                 
             # Always subtract 1 point just to remind it that taking steps costs energy
             reward -= 1.0 
@@ -142,7 +142,7 @@ if __name__ == "__main__":
 
     # Train the AI! (100,000 steps is a good quick test run)
     print("Beginning Training! The AI is now playing the game...")
-    model.learn(total_timesteps=200_000)
+    model.learn(total_timesteps=10_000_000)
 
     # Save the trained brain
     print("Training Complete! Saving the RL model...")
