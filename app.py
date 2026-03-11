@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import networkx as nx
 import pandas as pd
+from sb3_contrib import MaskablePPO
 import numpy as np
 import pickle
 import os
@@ -22,6 +23,17 @@ with open("choice_encoder.pkl", "rb") as f: choice_encoder = pickle.load(f)
 
 graph = nx.read_gml("wikipedia_subset_small.gml")
 nodes_list = list(graph.nodes)
+
+print("Loading Reinforcement Learning Agent...")
+try:
+    rl_model = MaskablePPO.load("rl_wiki_model")
+    # The RL AI needs to translate string names into integer IDs
+    node_to_id = {node: i for i, node in enumerate(nodes_list)}
+    id_to_node = {i: node for i, node in enumerate(nodes_list)}
+    print("RL Agent Ready!")
+except Exception as e:
+    print(f"Warning: Could not load RL model. Did you run the trainer script? {e}")
+    rl_model = None
 
 # 🚨 THE FIX: WARM UP THE NEURAL NETWORK 🚨
 print("Warming up the AI engine...")
@@ -125,13 +137,13 @@ def calculate():
     # 2. Get AI Predicted Path
     
     node = start
-    ai_path = []
+    sl_path = []
     j = 0
-    ai_explored = 0
-    start_time_ai = time.time()
+    sl_explored = 0
+    start_time_sl_ai = time.time()
     while j < 15:
-        ai_path.append(node)
-        ai_explored += 1 # The AI only explores the exact nodes it lands on
+        sl_path.append(node)
+        sl_explored += 1 # The AI only explores the exact nodes it lands on
         if node == target:
             break
             
@@ -162,19 +174,64 @@ def calculate():
             
         j += 1
         
-    if ai_path[-1] != target:
-        ai_path.append("(Failed)")
+    if sl_path[-1] != target:
+        sl_path.append("(Failed)")
 
-    ai_time = time.time() - start_time_ai
+    sl_ai_time = time.time() - start_time_sl_ai
 
+    # 3. Get Reinforcement Learning Predicted Path
+    rl_path = []
+    rl_explored = 0
+    rl_time = 0.0
+    if rl_model:
+        node = start
+        rl_path.append(node)
+        j = 0
+        start_time_rl_ai = time.time()
+        while j < 15:
+            rl_explored += 1 # The RL AI only explores the exact nodes it lands on
+            if node == target:
+                break
+                
+            neighbors = list(graph.neighbors(node))
+            if not neighbors:
+                break
+
+            # 1. Create the observation array [Current ID, Target ID]
+            obs = np.array([node_to_id[node], node_to_id[target]], dtype=np.int32)
+            
+            # 2. Create the mask (True for valid neighbors, False for everything else)
+            mask = np.zeros(len(nodes_list), dtype=bool)
+            for n in neighbors:
+                mask[node_to_id[n]] = True
+                
+            # 3. Ask the RL AI for its absolute best move
+            action, _states = rl_model.predict(obs, action_masks=mask, deterministic=True)
+            
+            # 4. Translate the integer ID back to a Wikipedia page name
+            node = id_to_node[int(action)]
+            rl_path.append(node)
+            j += 1
+            
+        if rl_path[-1] != target:
+            rl_path.append("(Failed)")
+        rl_ai_time = time.time() - start_time_rl_ai
+    else:
+        rl_path = ["(RL Model Not Loaded)"]
     # Send the new stats to the frontend!
     return jsonify({
+        #BFS stats
         "bfs_path": bfs_path,
         "bfs_time": round(bfs_time, 4),
         "bfs_explored": bfs_explored,
-        "ai_path": ai_path,
-        "ai_time": round(ai_time, 4),
-        "ai_explored": ai_explored
+        #Supervised Learning AI stats
+        "sl_path": sl_path,
+        "sl_time": round(sl_ai_time, 4),
+        "sl_explored": sl_explored,
+        #Reinforcement Learning AI stats
+        "rl_path": rl_path,
+        "rl_time": round(rl_ai_time, 4),
+        "rl_explored": rl_explored
     })
 
 if __name__ == '__main__':

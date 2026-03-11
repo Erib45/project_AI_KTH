@@ -48,6 +48,13 @@
         <br><br>
         <input type="text" id="startNode" list="nodeList" placeholder="Start Node...">
         <input type="text" id="targetNode" list="nodeList" placeholder="Target Node...">
+        <div style="margin: 20px 0;">
+            <label style="font-size: 18px; color: var(--text-main);">Choose your Opponent: </label>
+            <select id="opponentSelect" style="padding: 10px; font-size: 16px; border-radius: 5px; background: #2c2c2c; color: white; border: 1px solid #444; cursor: pointer;">
+                <option value="sl">🤖 Supervised AI (Keras)</option>
+                <option value="rl">🧠 Reinforcement AI (PPO)</option>
+            </select>
+        </div>
         <button onclick="startGame()" style="background: var(--human-color);">Start Race!</button>
         
         <datalist id="nodeList">
@@ -77,14 +84,21 @@
     <div class="results" id="resultsScreen">
         <h2 id="endGameTitle"></h2>
         
-        <h3 style="color: var(--human-color);">Your Path (<span id="humanStepScore"></span> steps)</h3>
-        <p id="humanPathDisplay"></p>
-        
-        <h3 style="color: var(--accent);">AI's Path (<span id="aiStepScore">...</span> steps)</h3>
-        <p id="aiPathDisplay">Calculating AI response...</p>
-        
-        <h3 style="color: var(--bfs-color);">Optimal Shortest Path (<span id="bfsStepScore">...</span> steps)</h3>
-        <p id="bfsPathDisplay">Calculating perfect path...</p>
+      <h3 style="color: #ffeb3b;">Your Path (<span id="humanStepScore"></span> steps)</h3>
+        <p id="humanPathDisplay" style="margin-bottom: 20px; font-size: 15px;"></p>
+
+        <div id="slResultBox">
+            <h3 style="color: #bb86fc;">Opponent: Supervised AI (<span id="slStepScore">...</span> steps)</h3>
+            <p id="slPathDisplay" style="margin-bottom: 20px; font-size: 15px;">Calculating SL response...</p>
+        </div>
+
+        <div id="rlResultBox">
+            <h3 style="color: #ff9800;">Opponent: Reinforcement AI (<span id="rlStepScore">...</span> steps)</h3>
+            <p id="rlPathDisplay" style="margin-bottom: 20px; font-size: 15px;">Calculating RL response...</p>
+        </div>
+
+        <h3 style="color: #03dac6;">Optimal Shortest Path (<span id="bfsStepScore">...</span> steps)</h3>
+        <p id="bfsPathDisplay" style="margin-bottom: 20px; font-size: 15px;">Calculating perfect path...</p>
         
         <div style="text-align: center; margin-top: 20px;">
             <button onclick="location.reload()" style="background: var(--human-color);">Play Again</button>
@@ -227,25 +241,26 @@
             }
         }
 
-        async function endGame(isWin) {
-            document.getElementById('gameBoard').style.display = 'none';
-            const resultsScreen = document.getElementById('resultsScreen');
-            resultsScreen.style.display = 'block';
-            
-            const title = document.getElementById('endGameTitle');
-            if(isWin) {
-                title.innerText = "🎉 Target Reached!";
-                title.className = "win-title";
-                resultsScreen.style.borderColor = "#4caf50";
-            } else {
-                title.innerText = "💀 You Surrendered!";
-                title.className = "loss-title";
-                resultsScreen.style.borderColor = "#f44336";
-            }
-            
-            document.getElementById('humanStepScore').innerText = humanPath.length - 1;
-            document.getElementById('humanPathDisplay').innerText = humanPath.join(" ➔ ");
+       async function endGame(isWin) {
+        document.getElementById('gameBoard').style.display = 'none';
+        const resultsScreen = document.getElementById('resultsScreen');
+        resultsScreen.style.display = 'block';
+        
+        const title = document.getElementById('endGameTitle');
+        if(isWin) {
+            title.innerText = "🎉 Target Reached!";
+            title.className = "win-title";
+            resultsScreen.style.borderColor = "#4caf50";
+        } else {
+            title.innerText = "💀 You Surrendered!";
+            title.className = "loss-title";
+            resultsScreen.style.borderColor = "#f44336";
+        }
+        
+        document.getElementById('humanStepScore').innerText = humanPath.length - 1;
+        document.getElementById('humanPathDisplay').innerText = humanPath.join(" ➔ ");
 
+        try {
             const response = await fetch('/calculate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -253,12 +268,50 @@
             });
             const data = await response.json();
             
-            document.getElementById('aiStepScore').innerText = data.ai_path.length - 1;
-            document.getElementById('aiPathDisplay').innerText = data.ai_path.join(" ➔ ");
+            // 🚨 1. CHECK OPPONENT AND HIDE THE OTHER AI 🚨
+            const chosenOpponent = document.getElementById('opponentSelect').value;
+            if (chosenOpponent === 'sl') {
+                document.getElementById('slResultBox').style.display = 'block';
+                document.getElementById('rlResultBox').style.display = 'none';
+            } else {
+                document.getElementById('slResultBox').style.display = 'none';
+                document.getElementById('rlResultBox').style.display = 'block';
+            }
+
+            // 🚨 2. UPDATE SUPERVISED AI (SL) DISPLAY 🚨
+            if (data.sl_path[data.sl_path.length - 1] === "(Failed)") {
+                document.getElementById('slStepScore').innerText = "Failed";
+                document.getElementById('slPathDisplay').innerText = "Failed to find path.";
+            } else {
+                document.getElementById('slStepScore').innerText = data.sl_path.length - 1;
+                document.getElementById('slPathDisplay').innerText = data.sl_path.join(" ➔ ");
+            }
+
+            // 🚨 3. UPDATE REINFORCEMENT AI (RL) DISPLAY 🚨
+            if (data.rl_path[data.rl_path.length - 1] === "(Failed)") {
+                document.getElementById('rlStepScore').innerText = "Failed";
+                document.getElementById('rlPathDisplay').innerText = "Failed to find path.";
+            } else {
+                document.getElementById('rlStepScore').innerText = data.rl_path.length - 1;
+                document.getElementById('rlPathDisplay').innerText = data.rl_path.join(" ➔ ");
+            }
             
-            document.getElementById('bfsStepScore').innerText = data.bfs_path.length - 1;
-            document.getElementById('bfsPathDisplay').innerText = data.bfs_path.join(" ➔ ");
+            // 🚨 4. UPDATE OPTIMAL SHORTEST PATH (BFS) DISPLAY 🚨
+            if (data.bfs_path.length === 0) {
+                document.getElementById('bfsStepScore').innerText = "Failed";
+                document.getElementById('bfsPathDisplay').innerText = "No path found.";
+            } else {
+                document.getElementById('bfsStepScore').innerText = data.bfs_path.length - 1;
+                document.getElementById('bfsPathDisplay').innerText = data.bfs_path.join(" ➔ ");
+            }
+            
+        } catch (error) {
+            console.error("Error fetching path:", error);
+            document.getElementById('slPathDisplay').innerText = "Server error.";
+            document.getElementById('rlPathDisplay').innerText = "Server error.";
+            document.getElementById('bfsPathDisplay').innerText = "Server error.";
         }
+    }
     </script>
 </body>
 </html>
