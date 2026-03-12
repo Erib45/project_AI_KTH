@@ -5,6 +5,8 @@ from sb3_contrib import MaskablePPO
 import numpy as np
 import pickle
 import os
+from torch.distributions import Distribution
+Distribution.set_default_validate_args(False)
 import random
 import time
 from collections import deque

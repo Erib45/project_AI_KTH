@@ -142,7 +142,7 @@ if __name__ == "__main__":
 
     # Train the AI! (100,000 steps is a good quick test run)
     print("Beginning Training! The AI is now playing the game...")
-    model.learn(total_timesteps=10_000_000)
+    model.learn(total_timesteps=5_000_000)
 
     # Save the trained brain
     print("Training Complete! Saving the RL model...")
