@@ -82,25 +82,25 @@ class WikiGraphEnv(gym.Env):
         
         # 🚨 NEW: Your Custom Reward Scaling Logic!
         if self.current_node == self.target_node:
-            reward = 50
+            reward = 100.0  # Jackpot! The AI found the target!
             terminated = True
             
         elif len(list(self.graph.neighbors(self.current_node))) == 0:
-            reward = -30
+            reward = -30.0  # Oh no! The AI got stuck on a dead-end page with no links out.
             terminated = True
             
         elif self.steps_taken >= self.max_steps:
-            reward = -2
+            reward = -20.0  # Time's up! The AI ran out of steps before finding the target.
             truncated = True
             
         else:
             # The AI is still playing. Let's grade its step using the radar!
             if new_distance < old_distance:
-                reward = 5.0   # Amazing! It stepped toward the target.
+                reward = 3.0   # Amazing! It stepped toward the target.
             elif new_distance == old_distance:
-                reward = 0    # Okay. It stepped sideways (neither closer nor further).
+                reward = 0.0  # Okay. It stepped sideways (neither closer nor further).
             else:
-                reward = -5  # Terrible! It stepped backwards or off the path entirely.
+                reward = -3.0  # Terrible! It stepped backwards or off the path entirely.
                 
             # Always subtract 1 point just to remind it that taking steps costs energy
             reward -= 1.0 
