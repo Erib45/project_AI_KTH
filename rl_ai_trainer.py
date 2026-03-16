@@ -86,7 +86,7 @@ class WikiGraphEnv(gym.Env):
             terminated = True
             
         elif len(list(self.graph.neighbors(self.current_node))) == 0:
-            reward = -30.0  # Oh no! The AI got stuck on a dead-end page with no links out.
+            reward = -50.0  # Oh no! The AI got stuck on a dead-end page with no links out.
             terminated = True
             
         elif self.steps_taken >= self.max_steps:
@@ -140,17 +140,15 @@ if __name__ == "__main__":
     print("Initializing the RL Agent...")
     model = MaskablePPO("MlpPolicy", env, verbose=1, learning_rate=0.0003)
 
-    # Train the AI! (100,000 steps is a good quick test run)
+    # Train the AI!
     print("Beginning Training! The AI is now playing the game...")
-    model.learn(total_timesteps=5_000_000)
+    model.learn(total_timesteps=100_000)
 
     # Save the trained brain
     print("Training Complete! Saving the RL model...")
     model.save("rl_wiki_model")
     
     print("Saved as 'rl_wiki_model.zip'. Ready to load into the frontend!")
-
-    # ... [Keep the model.save() line you already have] ...
     
     # ==========================================
     # 4. EVALUATE THE TRAINED AI (THE EXAM)
