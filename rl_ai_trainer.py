@@ -96,7 +96,7 @@ class WikiGraphEnv(gym.Env):
         else:
             # The AI is still playing. Let's grade its step using the radar!
             if new_distance < old_distance:
-                reward = 4.0   # Amazing! It stepped toward the target.
+                reward = 3.0   # Amazing! It stepped toward the target.
             elif new_distance == old_distance:
                 reward = -1.0  # Okay. It stepped sideways (neither closer nor further).
             else:
