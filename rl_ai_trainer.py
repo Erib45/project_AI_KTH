@@ -58,6 +58,7 @@ class WikiGraphEnv(gym.Env):
         
         # OPTIMIZATION: Cache BFS radar maps so we never calculate the same target twice!
         self.radar_cache = {}
+        self.visited_nodes = set()
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -84,6 +85,7 @@ class WikiGraphEnv(gym.Env):
         # Spawn the AI on a guaranteed winnable page!
         self.current_node = random.choice(winnable_starts)
         self.steps_taken = 0
+        self.visited_nodes = {self.current_node}
         
         return self._get_obs(), {}
 
@@ -110,6 +112,9 @@ class WikiGraphEnv(gym.Env):
             reward = 100.0  # Jackpot! The AI found the target!
             terminated = True
             
+        elif self.current_node in self.visited_nodes:
+            reward = -10.0  # 🚨 DIZZY: The AI walked in a circle! 
+            
         elif new_distance == float('inf'):
             reward = -10.0  # 🚨 THE ABYSS: The AI stepped onto a page with NO valid path to the target. Instant death!
             terminated = True
@@ -123,6 +128,7 @@ class WikiGraphEnv(gym.Env):
             truncated = True
             
         else:
+            self.visited_nodes.add(self.current_node) # Record this page so we don't come back!
             # The AI is still playing. Let's grade its step using the radar!
             if new_distance < old_distance:
                 reward = 3.0   # Amazing! It stepped toward the target.
