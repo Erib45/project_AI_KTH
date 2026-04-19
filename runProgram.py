@@ -1,13 +1,14 @@
+import os
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
 import random
 import pandas as pd
 import numpy as np
 import networkx as nx
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-import os
 import pickle
-
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Dropout, Input, Dense, Embedding, Flatten, Concatenate

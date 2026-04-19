@@ -1,16 +1,18 @@
+import os
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
 from flask import Flask, render_template, request, jsonify
 import networkx as nx
 import pandas as pd
 from sb3_contrib import MaskablePPO
 import numpy as np
 import pickle
-import os
 from torch.distributions import Distribution
 Distribution.set_default_validate_args(False)
 import random
 import time
 from collections import deque
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 from tensorflow.keras.models import load_model
 
 app = Flask(__name__)
